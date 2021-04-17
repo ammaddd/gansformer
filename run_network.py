@@ -7,7 +7,7 @@ import copy
 import glob
 import sys
 import os
-
+import comet_ml
 import dnnlib
 from dnnlib import EasyDict
 from metrics.metric_defaults import metric_defaults
