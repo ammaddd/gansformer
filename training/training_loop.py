@@ -10,6 +10,7 @@
 # If provided, image will be generated conditioned on a chosen label
 import glob
 import numpy as np
+from comet_utils import CometLogger
 import tensorflow as tf
 
 import dnnlib
@@ -21,6 +22,7 @@ from training import dataset as data
 from training import misc
 from training import visualize
 from metrics import metric_base
+from pandas.io.json._normalize import nested_to_record
 
 # Data processing
 # ----------------------------------------------------------------------------
@@ -174,13 +176,20 @@ def training_loop(
     last_snapshots          = 10,       # Maximal number of prior snapshots to save
     eval_images_num         = 50000,    # Sample size for the metrics
     printname               = "",       # Experiment name for logging
+    comet                   = False,    # Comet logging
     # Architecture
     merge                   = False):   # Generate several images and then merge them
 
-    # Initialize dnnlib and TensorFlow
+    # Initialize dnnlib, TensorFlow and Comet
+    comet_logger = CometLogger(comet, auto_metric_logging=False)
     tflib.init_tf(tf_config)
     num_gpus = dnnlib.submit_config.num_gpus
     cG.name, cD.name = "g", "d"
+    
+    # Comet Logging
+    for dict_ in [cG, cD, dataset_args, sched_args]:
+        dict_ = nested_to_record(dict(dict_), sep='_')
+        comet_logger.log_others(dict_)
 
     # Load dataset, configure training scheduler and metrics object
     dataset = data.load_dataset(data_dir = dnnlib.convert_path(data_dir), verbose = True, **dataset_args)
@@ -361,6 +370,27 @@ def training_loop(
                 for k in cN.lossvals_agg:
                     cN.lossvals_agg[k] = emaAvg(cN.lossvals_agg[k], cN.lossvals[k])
 
+        # Comet Logging
+        if comet_logger is not None:
+            comet_logger.log_metric("G_loss", cG.lossvals_agg["loss"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("G_reg", cG.lossvals_agg["reg"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("G_norm", cG.lossvals_agg["norm"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("G_reg_norm", cG.lossvals_agg["reg_norm"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            
+            comet_logger.log_metric("D_loss", cD.lossvals_agg["loss"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("D_reg", cD.lossvals_agg["reg"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("D_norm", cD.lossvals_agg["norm"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+            comet_logger.log_metric("D_reg_norm", cD.lossvals_agg["reg_norm"] or 0,
+                                    step=cur_nimg, epoch=cur_nimg // 1000)
+        
+
         # Perform maintenance tasks once per tick
         done = (cur_nimg >= total_kimg * 1000)
         if cur_tick < 0 or cur_nimg >= tick_start_nimg + sched.tick_kimg * 1000 or done:
@@ -395,11 +425,14 @@ def training_loop(
             if img_snapshot_ticks is not None and (cur_tick % img_snapshot_ticks == 0 or done):
                 visualize.eval(Gs, dataset, batch_size = sched.minibatch_gpu, training = True,
                     step = cur_nimg // 1000, grid_size = grid_size, latents = grid_latents, 
-                    labels = grid_labels, drange_net = drange_net, ratio = ratio, **vis_args)
+                    labels = grid_labels, drange_net = drange_net, ratio = ratio,
+                    comet_logger = comet_logger, iteration = cur_nimg, **vis_args)
 
             if network_snapshot_ticks is not None and (cur_tick % network_snapshot_ticks == 0 or done):
                 pkl = dnnlib.make_run_dir_path("network-snapshot-%06d.pkl" % (cur_nimg // 1000))
                 misc.save_pkl((G, D, Gs), pkl, remove = False)
+                if comet_logger is not None:
+                    comet_logger.log_model("weights", pkl)
 
                 if cur_tick % network_snapshot_ticks == 0 or done:
                     metric = metrics.run(pkl, num_imgs = eval_images_num, run_dir = dnnlib.make_run_dir_path(),
@@ -418,7 +451,10 @@ def training_loop(
             maintenance_time = dnnlib.RunContext.get().get_last_update_interval() - tick_time
 
     # Save final snapshot
-    misc.save_pkl((G, D, Gs), dnnlib.make_run_dir_path("network-final.pkl"), remove = False)
+    pkl = dnnlib.make_run_dir_path("network-final.pkl")
+    misc.save_pkl((G, D, Gs), pkl, remove = False)
+    if comet_logger is not None:
+        comet_logger.log_model("weights", pkl)
 
     # All done
     if summarize:

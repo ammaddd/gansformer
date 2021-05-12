@@ -7,7 +7,7 @@ import copy
 import glob
 import sys
 import os
-
+from comet_utils import CometLogger
 import dnnlib
 from dnnlib import EasyDict
 from metrics.metric_defaults import metric_defaults
@@ -164,6 +164,7 @@ def run(**args):
         cset(vis, arg, args[arg])
     for arg in ["summarize", "eval_images_num"]:
         cset(train, arg, args[arg])
+    cset(train, "comet", args.comet)
 
     # Visualization
     args.vis_imgs = args.vis_images
@@ -398,6 +399,7 @@ def main():
                                                        "(used only for visualizations, _not used_ in training or for computing metrics) (default: %(default)s)", default = 0.65, type = float)
     parser.add_argument("--keep-samples",       help = "Keep all prior samples during training, or if False, just the most recent ones (default: %(default)s)", default = True, metavar = "BOOL", type = _str_to_bool, nargs = "?")
     parser.add_argument("--eval-images-num",    help = "Number of images to evaluate metrics on (default: 50,000)", default = None, type = int)
+    parser.add_argument('--comet',              help = "enable comet logging", default = False, type = bool)
 
     ## Visualization
     parser.add_argument("--vis-images",         help = "Save image samples", default = None, action = "store_true")

@@ -75,6 +75,9 @@ def eval(G,
     alpha               = 0.3,        # Proportion for generated images and attention maps blends
     intrp_density       = 8,          # Number of samples in between two end points of an interpolation
     intrp_per_component = False,      # Whether to perform interpolation along particular latent components (True)
+    # Logging
+    comet_logger        = None,       # Comet Logger
+    iteration           = 0,          # Current training iteration
                                       # or all of them at once (False)
     noise_samples_num   = 100,        # Number of samples used to compute noise variation visualization
     section_size        = 100):       # Visualization section size (section_size <= num) for reducing memory footprint
@@ -157,6 +160,8 @@ def eval(G,
             if verbose:
                 print("Saving image samples...")
             save_images(images, pattern_of("images", step, "png"), idx)
+            comet_logger.log_image(images[0], name="generated_images_{}".format(idx),
+                                   image_channels="first", step=iteration)
 
         # Save latent vectors
         if "ltnts" in vis:
